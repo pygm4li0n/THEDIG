@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>THE DIG · 2026</title>
+    <style>
+        /* ----- reset & full‑screen canvas ----- */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        html, body {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: #06080a;
+            cursor: grab;
+        }
+        body:active { cursor: grabbing; }
+
+        /* ----- panoramic background (60% visible) ----- */
+        .panorama {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 166.67vw;
+            height: 100vh;
+            background: url('https://i.postimg.cc/G2hvyCr5/ezgif-com-reverse.gif') no-repeat center / cover;
+            will-change: transform;
+            transform: translateX(-33.33vw);
+            filter: brightness(0.8) saturate(1.1);
+        }
+
+        /* ----- atmospheric overlay (vignette + colour wash) ----- */
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background:
+                radial-gradient(ellipse at center, transparent 35%, rgba(6, 8, 10, 0.75) 100%),
+                radial-gradient(ellipse at 25% 35%, rgba(80, 40, 180, 0.08), transparent 55%),
+                radial-gradient(ellipse at 75% 65%, rgba(200, 100, 50, 0.05), transparent 50%);
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        /* ----- particle canvas (smoke) ----- */
+        #particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 3;
+            mix-blend-mode: screen;
+            filter: blur(18px); /* creates soft, smoky volume */
+        }
+
+        /* ----- subtle film grain (texture) ----- */
+        .grain {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 4;
+            opacity: 0.035;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+            background-repeat: repeat;
+            background-size: 256px 256px;
+        }
+
+        /* ----- responsive ----- */
+        @media (max-width: 768px) {
+            .panorama {
+                width: 200vw;
+                transform: translateX(-50vw);
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== BACKGROUND ===== -->
+    <div class="panorama" id="panorama"></div>
+
+    <!-- ===== OVERLAY ===== -->
+    <div class="overlay"></div>
+
+    <!-- ===== SMOKE PARTICLES ===== -->
+    <canvas id="particles"></canvas>
+
+    <!-- ===== FILM GRAIN ===== -->
+    <div class="grain"></div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ------------------------------------------------------------
+            // 1. PARALLAX PANORAMA
+            // ------------------------------------------------------------
+            const panorama = document.getElementById('panorama');
+            const MIN_X = 0;
+            const MAX_X = -66.67;
+            const CENTER_X = -33.33;
+            let currentX = CENTER_X;
+            let targetX = CENTER_X;
+
+            function animatePanorama() {
+                currentX += (targetX - currentX) * 0.12;
+                if (Math.abs(targetX - currentX) < 0.001) currentX = targetX;
+                panorama.style.transform = `translateX(${currentX}vw)`;
+                requestAnimationFrame(animatePanorama);
+            }
+
+            document.addEventListener('mousemove', (e) => {
+                const ratio = e.clientX / window.innerWidth;
+                targetX = MIN_X + (MAX_X - MIN_X) * ratio;
+            });
+            document.addEventListener('mouseleave', () => { targetX = CENTER_X; });
+
+            // touch support
+            let touchStartX = 0, touchStartTarget = 0;
+            document.addEventListener('touchstart', (e) => {
+                touchStartX = e.touches[0].clientX;
+                touchStartTarget = targetX;
+            }, { passive: true });
+            document.addEventListener('touchmove', (e) => {
+                const dx = (e.touches[0].clientX - touchStartX) / window.innerWidth;
+                const delta = dx * (MAX_X - MIN_X);
+                targetX = Math.min(MAX_X, Math.max(MIN_X, touchStartTarget + delta));
+            }, { passive: true });
+
+            animatePanorama();
+
+            // ------------------------------------------------------------
+            // 2. SMOKE PARTICLE SYSTEM
+            // ------------------------------------------------------------
+            const canvas = document.getElementById('particles');
+            const ctx = canvas.getContext('2d');
+            let W, H;
+            const particles = [];
+            const COUNT = 55;
+
+            function resize() {
+                W = canvas.width = window.innerWidth;
+                H = canvas.height = window.innerHeight;
+            }
+            window.addEventListener('resize', resize);
+            resize();
+
+            class SmokeParticle {
+                constructor() {
+                    this.reset();
+                    this.y = Math.random() * H;
+                    this.x = Math.random() * W;
+                }
+
+                reset() {
+                    this.x = Math.random() * W;
+                    this.y = Math.random() * H;
+                    this.radius = Math.random() * 70 + 30;
+                    this.baseRadius = this.radius;
+                    this.speedX = (Math.random() - 0.5) * 0.15;
+                    this.speedY = (Math.random() - 0.5) * 0.15 - 0.03; // slight upward drift
+                    this.opacity = Math.random() * 0.12 + 0.04;
+                    this.life = Math.random() * 300 + 150;
+                    this.maxLife = this.life;
+                    // space / mystical palette: whites, soft blues, lavenders
+                    const colorVal = 180 + Math.random() * 75;
+                    const colorVal2 = 160 + Math.random() * 95;
+                    this.color = `rgba(${colorVal}, ${colorVal2}, 255, ${this.opacity})`;
+                }
+
+                update() {
+                    // wavy, fluid drift
+                    this.x += this.speedX + Math.sin(this.life * 0.008) * 0.12;
+                    this.y += this.speedY + Math.cos(this.life * 0.008) * 0.12;
+                    this.life--;
+                    // slow breathing effect
+                    this.radius = this.baseRadius * (0.6 + 0.4 * Math.sin(this.life * 0.015));
+                    if (this.life <= 0 || this.x < -150 || this.x > W + 150 || this.y < -150 || this.y > H + 150) {
+                        this.reset();
+                    }
+                }
+
+                draw() {
+                    const alpha = this.opacity * (this.life / this.maxLife);
+                    ctx.globalAlpha = alpha;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = this.color;
+                    ctx.fill();
+                    ctx.globalAlpha = 1;
+                }
+            }
+
+            for (let i = 0; i < COUNT; i++) {
+                particles.push(new SmokeParticle());
+            }
+
+            // draw loop
+            function drawSmoke() {
+                ctx.clearRect(0, 0, W, H);
+                for (const p of particles) {
+                    p.update();
+                    p.draw();
+                }
+                // occasional subtle "flare" (bright core)
+                if (Math.random() < 0.001) {
+                    const x = Math.random() * W;
+                    const y = Math.random() * H;
+                    const r = 40 + Math.random() * 60;
+                    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+                    grad.addColorStop(0, 'rgba(255, 240, 220, 0.08)');
+                    grad.addColorStop(1, 'rgba(255, 240, 220, 0)');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(x, y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                requestAnimationFrame(drawSmoke);
+            }
+
+            drawSmoke();
+
+        })();
+    </script>
+</body>
+</html>
