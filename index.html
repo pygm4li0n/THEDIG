@@ -1,315 +1,86 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>THE DIG · 2026</title>
-    <style>
-        /* ----- reset & full‑screen canvas ----- */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            user-select: none;
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panorama</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body {
+      overflow: hidden;
+      background: #000;
+      height: 100vh;
+      width: 100vw;
+      cursor: grab;
+    }
+    body:active { cursor: grabbing; }
 
-        html, body {
-            width: 100vw;
-            height: 100vh;
-            overflow: hidden;
-            background: #06080a;
-            cursor: grab;
-        }
-        body:active { cursor: grabbing; }
-
-        /* ----- panoramic background (larger than viewport for both‑axis panning) ----- */
-        .panorama {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            width: 200vw;
-            height: 200vh;
-            transform: translate(-50%, -50%) translateX(0px) translateY(0px);
-            background: url('https://i.postimg.cc/G2hvyCr5/ezgif-com-reverse.gif') no-repeat center / cover;
-            will-change: transform;
-            filter: brightness(0.85) saturate(1.1);
-        }
-
-        /* ----- atmospheric overlay (vignette + colour wash) ----- */
-        .overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background:
-                radial-gradient(ellipse at center, transparent 30%, rgba(6, 8, 10, 0.7) 100%),
-                radial-gradient(ellipse at 20% 30%, rgba(80, 40, 180, 0.06), transparent 50%),
-                radial-gradient(ellipse at 80% 70%, rgba(200, 100, 50, 0.04), transparent 50%);
-            pointer-events: none;
-            z-index: 2;
-        }
-
-        /* ----- smoke particle canvas (soft, volumetric) ----- */
-        #particles {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            pointer-events: none;
-            z-index: 3;
-            mix-blend-mode: screen;
-            filter: blur(20px);
-        }
-
-        /* ----- film grain texture ----- */
-        .grain {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            pointer-events: none;
-            z-index: 4;
-            opacity: 0.03;
-            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
-            background-repeat: repeat;
-            background-size: 256px 256px;
-        }
-
-        /* ----- responsive: adjust container size for smaller screens ----- */
-        @media (max-width: 768px) {
-            .panorama {
-                width: 220vw;
-                height: 220vh;
-            }
-        }
-    </style>
+    .bg {
+      position: relative;
+      width: 166.67vw;
+      height: 100vh;
+      background: url('https://i.postimg.cc/G2hvyCr5/ezgif-com-reverse.gif') no-repeat center/100% 100%;
+      will-change: transform;
+      transform: translateX(0vw);
+    }
+  </style>
 </head>
 <body>
+  <div class="bg" id="bg"></div>
 
-    <!-- ===== BACKGROUND ===== -->
-    <div class="panorama" id="panorama"></div>
+  <script>
+    (function() {
+      const bg = document.getElementById('bg');
+      const maxOffset = 66.67; // in vw units (166.67 - 100)
 
-    <!-- ===== OVERLAY ===== -->
-    <div class="overlay"></div>
+      let currentX = 0;
+      let targetX = 0;
 
-    <!-- ===== SMOKE PARTICLES ===== -->
-    <canvas id="particles"></canvas>
+      function update() {
+        // Ease towards target for smooth tracking
+        currentX += (targetX - currentX) * 0.12;
 
-    <!-- ===== FILM GRAIN ===== -->
-    <div class="grain"></div>
+        // Optional: add a tiny deadzone to prevent jitter at exact edges
+        if (Math.abs(targetX - currentX) < 0.001) {
+          currentX = targetX;
+        }
 
-    <script>
-        (function() {
-            'use strict';
+        bg.style.transform = `translateX(${-currentX}vw)`;
+        requestAnimationFrame(update);
+      }
 
-            // ------------------------------------------------------------
-            // 1. FULL 2D PARALLAX PANORAMA
-            // ------------------------------------------------------------
-            const panorama = document.getElementById('panorama');
+      // --- Mouse movement ---
+      document.addEventListener('mousemove', (e) => {
+        const x = e.clientX / window.innerWidth; // 0 to 1
+        targetX = maxOffset * x;
+      });
 
-            // The container is 200vw × 200vh, centered.
-            // The viewport shows 100vw × 100vh → 50% of the container
-            // So we have ±50% pan range in both axes.
-            // We map mouse position (0..1) to a translation range.
-            const MAX_SHIFT_X = 50; // in vw units (50% of container width)
-            const MAX_SHIFT_Y = 50; // in vh units (50% of container height)
+      // --- Scroll wheel support (for "scroll for hiding part") ---
+      document.addEventListener('wheel', (e) => {
+        // deltaY positive = scroll down, we map it to moving right
+        const delta = e.deltaY * 0.15;
+        targetX = Math.max(0, Math.min(maxOffset, targetX + delta));
+        e.preventDefault();
+      }, { passive: false });
 
-            let currentX = 0;
-            let currentY = 0;
-            let targetX = 0;
-            let targetY = 0;
+      // --- Touch support for mobile ---
+      let touchStartX = 0;
+      document.addEventListener('touchstart', (e) => {
+        touchStartX = e.touches[0].clientX;
+      }, { passive: true });
 
-            // Mouse position (normalized 0..1)
-            let mouseX = 0.5;
-            let mouseY = 0.5;
+      document.addEventListener('touchmove', (e) => {
+        const touchX = e.touches[0].clientX;
+        const diff = touchX - touchStartX;
+        // Map touch movement to targetX
+        const percent = diff / window.innerWidth;
+        targetX = Math.max(0, Math.min(maxOffset, targetX + percent * maxOffset));
+        touchStartX = touchX;
+      }, { passive: true });
 
-            function updateTargets() {
-                // Map mouse position to translation: 0 → -MAX_SHIFT, 1 → +MAX_SHIFT
-                targetX = (mouseX - 0.5) * 2 * MAX_SHIFT_X;
-                targetY = (mouseY - 0.5) * 2 * MAX_SHIFT_Y;
-            }
-
-            function animatePanorama() {
-                // Smooth interpolation
-                currentX += (targetX - currentX) * 0.08;
-                currentY += (targetY - currentY) * 0.08;
-
-                if (Math.abs(targetX - currentX) < 0.001) currentX = targetX;
-                if (Math.abs(targetY - currentY) < 0.001) currentY = targetY;
-
-                panorama.style.transform = `translate(-50%, -50%) translateX(${currentX}vw) translateY(${currentY}vh)`;
-                requestAnimationFrame(animatePanorama);
-            }
-
-            // ----- mouse tracking -----
-            document.addEventListener('mousemove', (e) => {
-                mouseX = e.clientX / window.innerWidth;
-                mouseY = e.clientY / window.innerHeight;
-                // Clamp to 0..1
-                mouseX = Math.min(1, Math.max(0, mouseX));
-                mouseY = Math.min(1, Math.max(0, mouseY));
-                updateTargets();
-            });
-
-            // Reset to center when mouse leaves
-            document.addEventListener('mouseleave', () => {
-                mouseX = 0.5;
-                mouseY = 0.5;
-                updateTargets();
-            });
-
-            // ----- touch support (full 2D swipe) -----
-            let touchStartX = 0, touchStartY = 0;
-            let touchStartMouseX = 0.5, touchStartMouseY = 0.5;
-
-            document.addEventListener('touchstart', (e) => {
-                const t = e.touches[0];
-                touchStartX = t.clientX;
-                touchStartY = t.clientY;
-                touchStartMouseX = mouseX;
-                touchStartMouseY = mouseY;
-            }, { passive: true });
-
-            document.addEventListener('touchmove', (e) => {
-                const t = e.touches[0];
-                const dx = (t.clientX - touchStartX) / window.innerWidth;
-                const dy = (t.clientY - touchStartY) / window.innerHeight;
-                mouseX = Math.min(1, Math.max(0, touchStartMouseX + dx));
-                mouseY = Math.min(1, Math.max(0, touchStartMouseY + dy));
-                updateTargets();
-            }, { passive: true });
-
-            // ----- start the loop -----
-            animatePanorama();
-
-            // ------------------------------------------------------------
-            // 2. SMOKE PARTICLE SYSTEM (improved: more organic, better contrast)
-            // ------------------------------------------------------------
-            const canvas = document.getElementById('particles');
-            const ctx = canvas.getContext('2d');
-            let W, H;
-            const particles = [];
-            const COUNT = 45;
-
-            function resize() {
-                W = canvas.width = window.innerWidth;
-                H = canvas.height = window.innerHeight;
-            }
-            window.addEventListener('resize', resize);
-            resize();
-
-            class SmokeParticle {
-                constructor() {
-                    this.reset();
-                }
-
-                reset() {
-                    this.x = Math.random() * W;
-                    this.y = Math.random() * H;
-                    this.radius = Math.random() * 80 + 40;
-                    this.baseRadius = this.radius;
-                    // Slow, wavy drift
-                    this.speedX = (Math.random() - 0.5) * 0.08;
-                    this.speedY = (Math.random() - 0.5) * 0.08 - 0.02;
-                    this.opacity = Math.random() * 0.10 + 0.03;
-                    // Slight variation in color: warm whites, soft purples, cool blues
-                    const hue = 220 + Math.random() * 40; // 220-260 (blue to purple)
-                    this.color = `hsla(${hue}, 60%, 85%, ${this.opacity})`;
-                    this.life = Math.random() * 400 + 200;
-                    this.maxLife = this.life;
-                    this.phase = Math.random() * Math.PI * 2;
-                }
-
-                update() {
-                    // Organic, wavy movement
-                    this.x += this.speedX + Math.sin(this.life * 0.006 + this.phase) * 0.1;
-                    this.y += this.speedY + Math.cos(this.life * 0.007 + this.phase) * 0.1;
-                    this.life--;
-
-                    // Slow breathing
-                    this.radius = this.baseRadius * (0.55 + 0.45 * Math.sin(this.life * 0.012 + this.phase));
-
-                    // Reset if out of bounds or expired
-                    if (this.life <= 0 || this.x < -200 || this.x > W + 200 || this.y < -200 || this.y > H + 200) {
-                        this.reset();
-                        this.life = this.maxLife;
-                    }
-                }
-
-                draw() {
-                    const alpha = this.opacity * (this.life / this.maxLife);
-                    const radius = Math.max(1, this.radius);
-
-                    // Soft glow
-                    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, radius);
-                    const color = this.color.replace(/[\d.]+\)$/, alpha + ')');
-                    grad.addColorStop(0, `hsla(220, 50%, 95%, ${alpha * 1.2})`);
-                    grad.addColorStop(0.3, this.color.replace(/[\d.]+\)$/, alpha * 0.8 + ')'));
-                    grad.addColorStop(1, this.color.replace(/[\d.]+\)$/, '0)'));
-
-                    ctx.globalAlpha = 1;
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
-                    ctx.fillStyle = grad;
-                    ctx.fill();
-                }
-            }
-
-            // Create particles
-            for (let i = 0; i < COUNT; i++) {
-                const p = new SmokeParticle();
-                // Stagger initial life for variety
-                p.life = Math.random() * p.maxLife;
-                particles.push(p);
-            }
-
-            function drawSmoke() {
-                ctx.clearRect(0, 0, W, H);
-
-                // Draw all particles
-                for (const p of particles) {
-                    p.update();
-                    p.draw();
-                }
-
-                // Rare, subtle bright flare (like a distant star)
-                if (Math.random() < 0.0008) {
-                    const x = Math.random() * W;
-                    const y = Math.random() * H;
-                    const r = 60 + Math.random() * 80;
-                    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-                    grad.addColorStop(0, 'rgba(255, 240, 220, 0.06)');
-                    grad.addColorStop(1, 'rgba(255, 240, 220, 0)');
-                    ctx.fillStyle = grad;
-                    ctx.beginPath();
-                    ctx.arc(x, y, r, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-
-                requestAnimationFrame(drawSmoke);
-            }
-
-            drawSmoke();
-
-            // ------------------------------------------------------------
-            // 3. On resize, reposition particles to fill the new screen
-            // ------------------------------------------------------------
-            window.addEventListener('resize', () => {
-                resize();
-                // Reset particles to avoid clustering
-                for (const p of particles) {
-                    p.x = Math.random() * W;
-                    p.y = Math.random() * H;
-                }
-            });
-
-            // Prevent context menu
-            document.addEventListener('contextmenu', (e) => e.preventDefault());
-
-        })();
-    </script>
+      // Start the animation loop
+      update();
+    })();
+  </script>
 </body>
 </html>
